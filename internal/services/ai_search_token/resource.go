@@ -153,6 +153,9 @@ func (r *AISearchTokenResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
+	// Preserve cf_api_key from state since it's not returned by the API
+	cfAPIKey := data.CfAPIKey
+
 	res := new(http.Response)
 	env := AISearchTokenResultEnvelope{*data}
 	_, err := r.client.AISearch.Tokens.Read(
@@ -181,6 +184,9 @@ func (r *AISearchTokenResource) Read(ctx context.Context, req resource.ReadReque
 	}
 	data = &env.Result
 
+	// Restore cf_api_key from state since the API doesn't return it
+	data.CfAPIKey = cfAPIKey
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -193,20 +199,24 @@ func (r *AISearchTokenResource) Delete(ctx context.Context, req resource.DeleteR
 		return
 	}
 
+	res := new(http.Response)
 	_, err := r.client.AISearch.Tokens.Delete(
 		ctx,
 		data.ID.ValueString(),
 		ai_search.TokenDeleteParams{
 			AccountID: cloudflare.F(data.AccountID.ValueString()),
 		},
+		option.WithResponseBodyInto(&res),
 		option.WithMiddleware(logging.Middleware(ctx)),
 	)
+	// Ignore 404 errors - resource already deleted
+	if res != nil && res.StatusCode == 404 {
+		return
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("failed to make http request", err.Error())
 		return
 	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
 func (r *AISearchTokenResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
